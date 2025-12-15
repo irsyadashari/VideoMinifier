@@ -256,6 +256,9 @@
 				DEVELOPMENT_TEAM = ZAF4VGV8W6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "To save the afterwards compressed video back to user's gallery";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To access video that user wanted to compressed";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +291,9 @@
 				DEVELOPMENT_TEAM = ZAF4VGV8W6;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "To save the afterwards compressed video back to user's gallery";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To access video that user wanted to compressed";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
