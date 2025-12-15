@@ -114,7 +114,8 @@ struct CompressorView: View {
             
             // MARK: - Success Modal (Results)
             if showingSuccessModal {
-                Color.black.opacity(0.4)
+                // 1. Darker dimming (0.6) so the modal stands out more
+                Color.black.opacity(0.6)
                     .edgesIgnoringSafeArea(.all)
                     .overlay(
                         VStack(spacing: 24) {
@@ -172,16 +173,29 @@ struct CompressorView: View {
                                     Text("Keep Original & Save New")
                                         .frame(maxWidth: .infinity)
                                         .padding()
-                                        .background(Color.gray.opacity(0.2))
+                                        .background(Color.primary.opacity(0.05)) // Subtle gray background
                                         .foregroundColor(.primary)
                                         .cornerRadius(10)
+                                    // Add a border to the button too for clarity
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                                        )
                                 }
                             }
                         }
                             .padding(24)
                             .background(Color(.systemBackground))
                             .cornerRadius(20)
-                            .shadow(radius: 20)
+                        
+                        // 2. NEW: Add a crisp border line around the entire modal
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+                            )
+                        
+                        // 3. NEW: Stronger, directional shadow for 3D depth
+                            .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 10)
                             .padding(.horizontal, 40)
                     )
             }
