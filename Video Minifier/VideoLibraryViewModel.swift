@@ -9,14 +9,20 @@ import SwiftUI
 import Photos
 import Combine
 
-// MARK: - 1. The ViewModel (Logic Layer)
-// Handles fetching assets and permissions so the View stays clean.
-class VideoLibraryViewModel: ObservableObject {
+class VideoLibraryViewModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
+    
     @Published var assets: PHFetchResult<PHAsset> = PHFetchResult()
     @Published var hasPermission: Bool = false
+    @Published var isLoading: Bool = false // NEW: Track loading state
     
-    init() {
+    override init() {
+        super.init()
+        PHPhotoLibrary.shared().register(self)
         checkPermission()
+    }
+    
+    deinit {
+        PHPhotoLibrary.shared().unregisterChangeObserver(self)
     }
     
     func checkPermission() {
@@ -40,14 +46,35 @@ class VideoLibraryViewModel: ObservableObject {
     }
     
     func fetchVideos() {
+        // 1. Set loading to true immediately
+        DispatchQueue.main.async {
+            self.isLoading = true
+        }
+        
         let options = PHFetchOptions()
-        // Sort by newest first
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        // Filter specifically for Videos
         options.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.video.rawValue)
         
-        DispatchQueue.main.async {
-            self.assets = PHAsset.fetchAssets(with: options)
+        // 2. Perform fetch on background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = PHAsset.fetchAssets(with: options)
+            
+            // 3. Update UI on main thread
+            DispatchQueue.main.async {
+                self?.assets = result
+                // Add a tiny delay so the user actually sees the refresh happen (optional but feels better)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self?.isLoading = false
+                }
+            }
+        }
+    }
+    
+    func photoLibraryDidChange(_ changeInstance: PHChange) {
+        if let changeDetails = changeInstance.changeDetails(for: assets) {
+            DispatchQueue.main.async {
+                self.assets = changeDetails.fetchResultAfterChanges
+            }
         }
     }
 }
