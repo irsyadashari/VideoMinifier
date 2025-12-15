@@ -16,10 +16,14 @@ struct CompressorView: View {
     @State private var player: AVPlayer?
     @State private var selectedQuality: QualityOption = .medium
     @State private var isCompressing = false
-    @State private var alertMessage = ""
-    @State private var showingAlert = false
+    @State private var progress: Float = 0.0 // To track export progress
     
-    // Environment needed to programmatically dismiss the view later if needed
+    // Alerts
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
+    @State private var showingCompletionAlert = false // Specific alert for Keep/Delete choice
+    @State private var compressedVideoURL: URL? // Store the path to the new file
+    
     @Environment(\.presentationMode) var presentationMode
     
     var body: some View {
@@ -39,15 +43,12 @@ struct CompressorView: View {
                             .overlay(ProgressView())
                     }
                 }
-                // CHANGED: Removed fixed aspect ratio.
-                // Added maxHeight: .infinity to fill all empty space.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black) // Adds a black background for letterboxing
+                .background(Color.black)
                 .cornerRadius(12)
-                .padding([.horizontal, .top]) // Keep margins on sides and top
+                .padding([.horizontal, .top])
                 
                 // 2. Bottom Controls Container
-                // We group the Picker and Button together at the bottom
                 VStack(spacing: 20) {
                     
                     // Quality Selection
@@ -65,7 +66,7 @@ struct CompressorView: View {
                     }
                     
                     // Compress Button
-                    Button(action: startCompressionTrigger) {
+                    Button(action: startCompression) {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
                             Text("Start Compressing")
@@ -81,13 +82,11 @@ struct CompressorView: View {
                     .opacity((player == nil || isCompressing) ? 0.6 : 1.0)
                 }
                 .padding(.horizontal)
-                .padding(.bottom) // Add padding at the very bottom of the screen
+                .padding(.bottom)
             }
-            // Hides back button during compression
             .navigationBarBackButtonHidden(isCompressing)
             
-            
-            // MARK: - Blocking Loading Overlay (Same as before)
+            // MARK: - Blocking Loading Overlay
             if isCompressing {
                 Color.black.opacity(0.7)
                     .edgesIgnoringSafeArea(.all)
@@ -99,7 +98,7 @@ struct CompressorView: View {
                             Text("Compressing Video...")
                                 .font(.headline)
                                 .foregroundColor(.white)
-                            Text("Please do not close the app.")
+                            Text("This may take a moment.")
                                 .font(.footnote)
                                 .foregroundColor(.gray)
                         }
@@ -115,17 +114,29 @@ struct CompressorView: View {
         .onDisappear {
             player?.pause()
         }
+        // General Error Alert
         .alert(isPresented: $showingAlert) {
             Alert(title: Text("Status"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
         }
+        // Success / Action Alert
+        .alert(isPresented: $showingCompletionAlert) {
+            Alert(
+                title: Text("Compression Complete"),
+                message: Text("Your video has been compressed successfully. Do you want to keep the original video or delete it?"),
+                primaryButton: .destructive(Text("Delete Original")) {
+                    saveCompressedAndDeleteOriginal()
+                },
+                secondaryButton: .default(Text("Keep Original")) {
+                    saveCompressedOnly()
+                }
+            )
+        }
     }
     
-    // MARK: - Helper Functions
-    
+    // MARK: - Logic Functions
     func loadVideoPlayer() {
-        // We need to get the AVAsset from the PHAsset to play it
         let options = PHVideoRequestOptions()
-        options.isNetworkAccessAllowed = true // Allow downloading from iCloud if needed
+        options.isNetworkAccessAllowed = true
         options.deliveryMode = .highQualityFormat
         
         PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, audioMix, info in
@@ -134,7 +145,6 @@ struct CompressorView: View {
                     let playerItem = AVPlayerItem(asset: avAsset)
                     self.player = AVPlayer(playerItem: playerItem)
                 } else {
-                    // Handle error loading video (e.g. iCloud download failed)
                     self.alertMessage = "Could not load video."
                     self.showingAlert = true
                 }
@@ -142,28 +152,94 @@ struct CompressorView: View {
         }
     }
     
-    func startCompressionTrigger() {
-        // Pause playback before starting heavy work
+    func startCompression() {
+        guard let currentItem = player?.currentItem else { return }
+        let assetToCompress = currentItem.asset
+        
+        // 1. Prepare UI
         player?.pause()
+        withAnimation { isCompressing = true }
         
-        withAnimation {
-            isCompressing = true
+        // 2. Define Output URL in Temporary Directory
+        let outputFileName = UUID().uuidString + ".mp4"
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(outputFileName)
+        
+        // Clean up any previous temp file at this location
+        try? FileManager.default.removeItem(at: outputURL)
+        
+        // 3. Configure Export Session
+        guard let exportSession = AVAssetExportSession(asset: assetToCompress, presetName: selectedQuality.avPresetName) else {
+            handleError("Could not create export session.")
+            return
         }
         
-        print("Starting compression with preset: \(selectedQuality.avPresetName)")
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
         
-        // --- PLACEHOLDER FOR NEXT STEP ---
-        // This is where the actual AVAssetExportSession logic will go.
-        // For now, we simulate a 4-second delay so you can see the UI blocking affect.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-            // Finish simulation
-            withAnimation {
-                isCompressing = false
+        // 4. Start Export
+        exportSession.exportAsynchronously {
+            DispatchQueue.main.async {
+                switch exportSession.status {
+                case .completed:
+                    self.compressedVideoURL = outputURL
+                    self.isCompressing = false
+                    self.showingCompletionAlert = true
+                case .failed, .cancelled:
+                    self.handleError(exportSession.error?.localizedDescription ?? "Unknown error")
+                default:
+                    break
+                }
             }
-            alertMessage = "Compression finished (Simulation completed)."
-            showingAlert = true
-            // In real app, you would navigate to the "Save/Replace" screen here.
         }
-        // ---------------------------------
+    }
+    
+    // Option A: Keep Original (Save New Only)
+    func saveCompressedOnly() {
+        guard let url = compressedVideoURL else { return }
+        
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+        }) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self.presentationMode.wrappedValue.dismiss()
+                } else {
+                    self.alertMessage = "Error saving video: \(error?.localizedDescription ?? "Unknown")"
+                    self.showingAlert = true
+                }
+            }
+        }
+    }
+    
+    // Option B: Delete Original (Save New + Delete Old)
+    func saveCompressedAndDeleteOriginal() {
+        guard let url = compressedVideoURL else { return }
+        
+        PHPhotoLibrary.shared().performChanges({
+            // 1. Create the new compressed video
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            
+            // 2. Delete the old original video
+            PHAssetChangeRequest.deleteAssets([self.asset] as NSArray)
+            
+        }) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    // Note: iOS will automatically show a system prompt to confirm deletion.
+                    // If user approves, success is true.
+                    self.presentationMode.wrappedValue.dismiss()
+                } else {
+                    self.alertMessage = "Action failed: \(error?.localizedDescription ?? "Unknown")"
+                    self.showingAlert = true
+                }
+            }
+        }
+    }
+    
+    func handleError(_ message: String) {
+        withAnimation { isCompressing = false }
+        alertMessage = message
+        showingAlert = true
     }
 }
