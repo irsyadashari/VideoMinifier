@@ -11,7 +11,7 @@ import SwiftUI
 struct Video_MinifierApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            VideoBrowserView()
         }
     }
 }
