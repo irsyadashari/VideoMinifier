@@ -16,13 +16,18 @@ struct CompressorView: View {
     @State private var player: AVPlayer?
     @State private var selectedQuality: QualityOption = .medium
     @State private var isCompressing = false
-    @State private var progress: Float = 0.0 // To track export progress
+    @State private var progress: Float = 0.0
     
-    // Alerts
+    // File Size State
+    @State private var originalSizeString: String = "Calculating..."
+    @State private var compressedSizeString: String = ""
+    @State private var savedSizeString: String = ""
+    
+    // Alerts & Modals
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var showingCompletionAlert = false // Specific alert for Keep/Delete choice
-    @State private var compressedVideoURL: URL? // Store the path to the new file
+    @State private var showingSuccessModal = false // New custom modal for results
+    @State private var compressedVideoURL: URL?
     
     @Environment(\.presentationMode) var presentationMode
     
@@ -37,7 +42,6 @@ struct CompressorView: View {
                         VideoPlayer(player: player)
                             .onAppear { player.play() }
                     } else {
-                        // Placeholder while loading
                         Rectangle()
                             .fill(Color.gray.opacity(0.2))
                             .overlay(ProgressView())
@@ -48,10 +52,14 @@ struct CompressorView: View {
                 .cornerRadius(12)
                 .padding([.horizontal, .top])
                 
-                // 2. Bottom Controls Container
+                // NEW: Show Original File Size
+                Text("Original Size: \(originalSizeString)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                // 2. Bottom Controls
                 VStack(spacing: 20) {
                     
-                    // Quality Selection
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Choose Compression Quality")
                             .font(.headline)
@@ -65,7 +73,6 @@ struct CompressorView: View {
                         .pickerStyle(.segmented)
                     }
                     
-                    // Compress Button
                     Button(action: startCompression) {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
@@ -103,37 +110,113 @@ struct CompressorView: View {
                                 .foregroundColor(.gray)
                         }
                     )
-                    .onTapGesture { }
+            }
+            
+            // MARK: - Success Modal (Results)
+            if showingSuccessModal {
+                Color.black.opacity(0.4)
+                    .edgesIgnoringSafeArea(.all)
+                    .overlay(
+                        VStack(spacing: 24) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(.green)
+                            
+                            Text("Compression Complete!")
+                                .font(.title2)
+                                .bold()
+                            
+                            // Comparison Stats
+                            HStack(spacing: 40) {
+                                VStack {
+                                    Text("Before")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(originalSizeString)
+                                        .font(.headline)
+                                }
+                                
+                                Image(systemName: "arrow.right")
+                                    .foregroundColor(.gray)
+                                
+                                VStack {
+                                    Text("After")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text(compressedSizeString)
+                                        .font(.headline)
+                                }
+                            }
+                            
+                            // Savings Highlight
+                            Text("You saved \(savedSizeString)!")
+                                .font(.headline)
+                                .foregroundColor(.green)
+                                .padding(8)
+                                .background(Color.green.opacity(0.1))
+                                .cornerRadius(8)
+                            
+                            // Action Buttons
+                            VStack(spacing: 12) {
+                                Button(action: saveCompressedAndDeleteOriginal) {
+                                    Text("Delete Original & Save New")
+                                        .bold()
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.red)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(10)
+                                }
+                                
+                                Button(action: saveCompressedOnly) {
+                                    Text("Keep Original & Save New")
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .foregroundColor(.primary)
+                                        .cornerRadius(10)
+                                }
+                            }
+                        }
+                            .padding(24)
+                            .background(Color(.systemBackground))
+                            .cornerRadius(20)
+                            .shadow(radius: 20)
+                            .padding(.horizontal, 40)
+                    )
             }
         }
         .navigationTitle("Preview & Compress")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadVideoPlayer()
+            calculateOriginalSize() // Calculate size on load
         }
         .onDisappear {
             player?.pause()
         }
-        // General Error Alert
         .alert(isPresented: $showingAlert) {
             Alert(title: Text("Status"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
-        }
-        // Success / Action Alert
-        .alert(isPresented: $showingCompletionAlert) {
-            Alert(
-                title: Text("Compression Complete"),
-                message: Text("Your video has been compressed successfully. Do you want to keep the original video or delete it?"),
-                primaryButton: .destructive(Text("Delete Original")) {
-                    saveCompressedAndDeleteOriginal()
-                },
-                secondaryButton: .default(Text("Keep Original")) {
-                    saveCompressedOnly()
-                }
-            )
         }
     }
     
     // MARK: - Logic Functions
+    
+    func calculateOriginalSize() {
+        // PHAsset resources calculation
+        let resources = PHAssetResource.assetResources(for: asset)
+        var size: Int64 = 0
+        
+        // Sum up sizes of all resources (video + audio components)
+        for resource in resources {
+            if let fileSize = resource.value(forKey: "fileSize") as? Int64 {
+                size += fileSize
+            }
+        }
+        
+        self.originalSizeString = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+    
     func loadVideoPlayer() {
         let options = PHVideoRequestOptions()
         options.isNetworkAccessAllowed = true
@@ -156,18 +239,14 @@ struct CompressorView: View {
         guard let currentItem = player?.currentItem else { return }
         let assetToCompress = currentItem.asset
         
-        // 1. Prepare UI
         player?.pause()
         withAnimation { isCompressing = true }
         
-        // 2. Define Output URL in Temporary Directory
         let outputFileName = UUID().uuidString + ".mp4"
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(outputFileName)
         
-        // Clean up any previous temp file at this location
         try? FileManager.default.removeItem(at: outputURL)
         
-        // 3. Configure Export Session
         guard let exportSession = AVAssetExportSession(asset: assetToCompress, presetName: selectedQuality.avPresetName) else {
             handleError("Could not create export session.")
             return
@@ -177,14 +256,16 @@ struct CompressorView: View {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
-        // 4. Start Export
         exportSession.exportAsynchronously {
             DispatchQueue.main.async {
                 switch exportSession.status {
                 case .completed:
                     self.compressedVideoURL = outputURL
+                    self.calculateResults(outputURL: outputURL) // Calculate new sizes
                     self.isCompressing = false
-                    self.showingCompletionAlert = true
+                    withAnimation {
+                        self.showingSuccessModal = true // Show custom modal
+                    }
                 case .failed, .cancelled:
                     self.handleError(exportSession.error?.localizedDescription ?? "Unknown error")
                 default:
@@ -194,7 +275,30 @@ struct CompressorView: View {
         }
     }
     
-    // Option A: Keep Original (Save New Only)
+    func calculateResults(outputURL: URL) {
+        // 1. Get original size in bytes
+        let resources = PHAssetResource.assetResources(for: asset)
+        var originalBytes: Int64 = 0
+        for resource in resources {
+            if let fileSize = resource.value(forKey: "fileSize") as? Int64 {
+                originalBytes += fileSize
+            }
+        }
+        
+        // 2. Get new size in bytes
+        var compressedBytes: Int64 = 0
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+           let size = attributes[.size] as? Int64 {
+            compressedBytes = size
+        }
+        
+        // 3. Format strings
+        self.compressedSizeString = ByteCountFormatter.string(fromByteCount: compressedBytes, countStyle: .file)
+        
+        let savedBytes = max(0, originalBytes - compressedBytes)
+        self.savedSizeString = ByteCountFormatter.string(fromByteCount: savedBytes, countStyle: .file)
+    }
+    
     func saveCompressedOnly() {
         guard let url = compressedVideoURL else { return }
         
@@ -205,32 +309,25 @@ struct CompressorView: View {
                 if success {
                     self.presentationMode.wrappedValue.dismiss()
                 } else {
-                    self.alertMessage = "Error saving video: \(error?.localizedDescription ?? "Unknown")"
+                    self.alertMessage = "Error saving: \(error?.localizedDescription ?? "Unknown")"
                     self.showingAlert = true
                 }
             }
         }
     }
     
-    // Option B: Delete Original (Save New + Delete Old)
     func saveCompressedAndDeleteOriginal() {
         guard let url = compressedVideoURL else { return }
         
         PHPhotoLibrary.shared().performChanges({
-            // 1. Create the new compressed video
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-            
-            // 2. Delete the old original video
             PHAssetChangeRequest.deleteAssets([self.asset] as NSArray)
-            
         }) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    // Note: iOS will automatically show a system prompt to confirm deletion.
-                    // If user approves, success is true.
                     self.presentationMode.wrappedValue.dismiss()
                 } else {
-                    self.alertMessage = "Action failed: \(error?.localizedDescription ?? "Unknown")"
+                    self.alertMessage = "Error: \(error?.localizedDescription ?? "Unknown")"
                     self.showingAlert = true
                 }
             }
