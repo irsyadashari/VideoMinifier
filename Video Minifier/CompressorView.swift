@@ -22,11 +22,12 @@ struct CompressorView: View {
     @State private var originalSizeString: String = "Calculating..."
     @State private var compressedSizeString: String = ""
     @State private var savedSizeString: String = ""
+    @State private var sizeIncreased = false // NEW: Track if size got bigger
     
     // Alerts & Modals
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var showingSuccessModal = false // New custom modal for results
+    @State private var showingSuccessModal = false
     @State private var compressedVideoURL: URL?
     
     @Environment(\.presentationMode) var presentationMode
@@ -52,7 +53,7 @@ struct CompressorView: View {
                 .cornerRadius(12)
                 .padding([.horizontal, .top])
                 
-                // NEW: Show Original File Size
+                // Show Original File Size
                 Text("Original Size: \(originalSizeString)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -114,16 +115,16 @@ struct CompressorView: View {
             
             // MARK: - Success Modal (Results)
             if showingSuccessModal {
-                // 1. Darker dimming (0.6) so the modal stands out more
                 Color.black.opacity(0.6)
                     .edgesIgnoringSafeArea(.all)
                     .overlay(
                         VStack(spacing: 24) {
-                            Image(systemName: "checkmark.circle.fill")
+                            // Icon Changes based on result
+                            Image(systemName: sizeIncreased ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                                 .font(.system(size: 60))
-                                .foregroundColor(.green)
+                                .foregroundColor(sizeIncreased ? .orange : .green)
                             
-                            Text("Compression Complete!")
+                            Text(sizeIncreased ? "Size Increased" : "Compression Complete!")
                                 .font(.title2)
                                 .bold()
                             
@@ -146,37 +147,56 @@ struct CompressorView: View {
                                         .foregroundColor(.secondary)
                                     Text(compressedSizeString)
                                         .font(.headline)
+                                        .foregroundColor(sizeIncreased ? .red : .primary)
                                 }
                             }
                             
-                            // Savings Highlight
-                            Text("You saved \(savedSizeString)!")
-                                .font(.headline)
-                                .foregroundColor(.green)
+                            // Savings Highlight (Dynamic Logic)
+                            if sizeIncreased {
+                                VStack(spacing: 4) {
+                                    Text("Size increased by \(savedSizeString)")
+                                        .font(.headline)
+                                        .foregroundColor(.red)
+                                    Text("Original video was already highly compressed.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
                                 .padding(8)
-                                .background(Color.green.opacity(0.1))
+                                .background(Color.red.opacity(0.1))
                                 .cornerRadius(8)
+                            } else {
+                                Text("You saved \(savedSizeString)!")
+                                    .font(.headline)
+                                    .foregroundColor(.green)
+                                    .padding(8)
+                                    .background(Color.green.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
                             
                             // Action Buttons
                             VStack(spacing: 12) {
-                                Button(action: saveCompressedAndDeleteOriginal) {
-                                    Text("Delete Original & Save New")
-                                        .bold()
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.red)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(10)
+                                // Only show Delete button if we actually saved space
+                                if !sizeIncreased {
+                                    Button(action: saveCompressedAndDeleteOriginal) {
+                                        Text("Delete Original & Save New")
+                                            .bold()
+                                            .frame(maxWidth: .infinity)
+                                            .padding()
+                                            .background(Color.red)
+                                            .foregroundColor(.white)
+                                            .cornerRadius(10)
+                                    }
                                 }
                                 
-                                Button(action: saveCompressedOnly) {
-                                    Text("Keep Original & Save New")
+                                // Secondary Button logic handles "Discard" if size increased
+                                Button(action: sizeIncreased ? { presentationMode.wrappedValue.dismiss() } : saveCompressedOnly) {
+                                    Text(sizeIncreased ? "Cancel & Discard" : "Keep Original & Save New")
                                         .frame(maxWidth: .infinity)
                                         .padding()
-                                        .background(Color.primary.opacity(0.05)) // Subtle gray background
+                                        .background(Color.primary.opacity(0.05))
                                         .foregroundColor(.primary)
                                         .cornerRadius(10)
-                                    // Add a border to the button too for clarity
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10)
                                                 .stroke(Color.primary.opacity(0.1), lineWidth: 1)
@@ -187,14 +207,10 @@ struct CompressorView: View {
                             .padding(24)
                             .background(Color(.systemBackground))
                             .cornerRadius(20)
-                        
-                        // 2. NEW: Add a crisp border line around the entire modal
                             .overlay(
                                 RoundedRectangle(cornerRadius: 20)
                                     .stroke(Color.primary.opacity(0.2), lineWidth: 1)
                             )
-                        
-                        // 3. NEW: Stronger, directional shadow for 3D depth
                             .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 10)
                             .padding(.horizontal, 40)
                     )
@@ -204,7 +220,7 @@ struct CompressorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadVideoPlayer()
-            calculateOriginalSize() // Calculate size on load
+            calculateOriginalSize()
         }
         .onDisappear {
             player?.pause()
@@ -217,17 +233,13 @@ struct CompressorView: View {
     // MARK: - Logic Functions
     
     func calculateOriginalSize() {
-        // PHAsset resources calculation
         let resources = PHAssetResource.assetResources(for: asset)
         var size: Int64 = 0
-        
-        // Sum up sizes of all resources (video + audio components)
         for resource in resources {
             if let fileSize = resource.value(forKey: "fileSize") as? Int64 {
                 size += fileSize
             }
         }
-        
         self.originalSizeString = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
     
@@ -275,10 +287,10 @@ struct CompressorView: View {
                 switch exportSession.status {
                 case .completed:
                     self.compressedVideoURL = outputURL
-                    self.calculateResults(outputURL: outputURL) // Calculate new sizes
+                    self.calculateResults(outputURL: outputURL) // This calculates size difference
                     self.isCompressing = false
                     withAnimation {
-                        self.showingSuccessModal = true // Show custom modal
+                        self.showingSuccessModal = true
                     }
                 case .failed, .cancelled:
                     self.handleError(exportSession.error?.localizedDescription ?? "Unknown error")
@@ -289,8 +301,9 @@ struct CompressorView: View {
         }
     }
     
+    // Updated Logic to handle Size Increase
     func calculateResults(outputURL: URL) {
-        // 1. Get original size in bytes
+        // 1. Get original size
         let resources = PHAssetResource.assetResources(for: asset)
         var originalBytes: Int64 = 0
         for resource in resources {
@@ -299,18 +312,25 @@ struct CompressorView: View {
             }
         }
         
-        // 2. Get new size in bytes
+        // 2. Get new size
         var compressedBytes: Int64 = 0
         if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
            let size = attributes[.size] as? Int64 {
             compressedBytes = size
         }
         
-        // 3. Format strings
+        // 3. Compare and Set Flags
         self.compressedSizeString = ByteCountFormatter.string(fromByteCount: compressedBytes, countStyle: .file)
         
-        let savedBytes = max(0, originalBytes - compressedBytes)
-        self.savedSizeString = ByteCountFormatter.string(fromByteCount: savedBytes, countStyle: .file)
+        if compressedBytes > originalBytes {
+            self.sizeIncreased = true
+            let extraBytes = compressedBytes - originalBytes
+            self.savedSizeString = "+" + ByteCountFormatter.string(fromByteCount: extraBytes, countStyle: .file)
+        } else {
+            self.sizeIncreased = false
+            let savedBytes = originalBytes - compressedBytes
+            self.savedSizeString = ByteCountFormatter.string(fromByteCount: savedBytes, countStyle: .file)
+        }
     }
     
     func saveCompressedOnly() {
