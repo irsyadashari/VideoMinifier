@@ -16,13 +16,18 @@ struct CompressorView: View {
     @State private var player: AVPlayer?
     @State private var selectedQuality: QualityOption = .medium
     @State private var isCompressing = false
-    @State private var progress: Float = 0.0
+    @State private var progress: Float = 0.0 // 0.0 to 1.0
+    
+    // ETA Calculation State
+    @State private var timeRemainingString: String = "Calculating..."
+    @State private var startTime: Date?
+    @State private var timer: Timer? // To poll progress
     
     // File Size State
     @State private var originalSizeString: String = "Calculating..."
     @State private var compressedSizeString: String = ""
     @State private var savedSizeString: String = ""
-    @State private var sizeIncreased = false // NEW: Track if size got bigger
+    @State private var sizeIncreased = false
     
     // Alerts & Modals
     @State private var showingAlert = false
@@ -94,23 +99,43 @@ struct CompressorView: View {
             }
             .navigationBarBackButtonHidden(isCompressing)
             
-            // MARK: - Blocking Loading Overlay
+            // MARK: - Blocking Loading Overlay with Progress Bar
             if isCompressing {
-                Color.black.opacity(0.7)
+                Color.black.opacity(0.8) // Darker background for focus
                     .edgesIgnoringSafeArea(.all)
                     .overlay(
-                        VStack(spacing: 20) {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(1.5)
-                            Text("Compressing Video...")
-                                .font(.headline)
+                        VStack(spacing: 24) {
+                            
+                            // Percentage Text
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 48, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
-                            Text("This may take a moment.")
+                            
+                            // Progress Bar
+                            VStack(spacing: 8) {
+                                ProgressView(value: progress)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                                    .scaleEffect(x: 1, y: 2, anchor: .center) // Make bar thicker
+                                
+                                HStack {
+                                    Text("Compressing...")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    Spacer()
+                                    // Estimated Time
+                                    Text(timeRemainingString)
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            .padding(.horizontal, 40)
+                            
+                            Text("Please do not close the app.")
                                 .font(.footnote)
-                                .foregroundColor(.gray)
+                                .foregroundColor(.gray.opacity(0.8))
                         }
                     )
+                    .onTapGesture { } // Block touches
             }
             
             // MARK: - Success Modal (Results)
@@ -176,7 +201,6 @@ struct CompressorView: View {
                             
                             // Action Buttons
                             VStack(spacing: 12) {
-                                // Only show Delete button if we actually saved space
                                 if !sizeIncreased {
                                     Button(action: saveCompressedAndDeleteOriginal) {
                                         Text("Delete Original & Save New")
@@ -189,7 +213,6 @@ struct CompressorView: View {
                                     }
                                 }
                                 
-                                // Secondary Button logic handles "Discard" if size increased
                                 Button(action: sizeIncreased ? { presentationMode.wrappedValue.dismiss() } : saveCompressedOnly) {
                                     Text(sizeIncreased ? "Cancel & Discard" : "Keep Original & Save New")
                                         .frame(maxWidth: .infinity)
@@ -224,6 +247,7 @@ struct CompressorView: View {
         }
         .onDisappear {
             player?.pause()
+            stopTimer() // Safety cleanup
         }
         .alert(isPresented: $showingAlert) {
             Alert(title: Text("Status"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
@@ -265,7 +289,10 @@ struct CompressorView: View {
         guard let currentItem = player?.currentItem else { return }
         let assetToCompress = currentItem.asset
         
+        // 1. Reset UI State
         player?.pause()
+        progress = 0.0
+        timeRemainingString = "Calculating..."
         withAnimation { isCompressing = true }
         
         let outputFileName = UUID().uuidString + ".mp4"
@@ -282,12 +309,18 @@ struct CompressorView: View {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
+        // 2. Start Timer for Progress & ETA
+        startTime = Date()
+        startProgressTimer(for: exportSession)
+        
         exportSession.exportAsynchronously {
             DispatchQueue.main.async {
+                self.stopTimer() // Stop timer when done
+                
                 switch exportSession.status {
                 case .completed:
                     self.compressedVideoURL = outputURL
-                    self.calculateResults(outputURL: outputURL) // This calculates size difference
+                    self.calculateResults(outputURL: outputURL)
                     self.isCompressing = false
                     withAnimation {
                         self.showingSuccessModal = true
@@ -301,9 +334,41 @@ struct CompressorView: View {
         }
     }
     
-    // Updated Logic to handle Size Increase
+    // MARK: - Timer & ETA Logic
+    
+    func startProgressTimer(for exportSession: AVAssetExportSession) {
+        // Run a timer every 0.1 seconds
+        self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            let currentProgress = exportSession.progress
+            
+            self.progress = currentProgress
+            
+            // Calculate ETA
+            if let start = self.startTime, currentProgress > 0.0 {
+                let timeElapsed = Date().timeIntervalSince(start)
+                // Formula: (TimeElapsed / Progress) = TotalTime
+                // Remaining = TotalTime - TimeElapsed
+                let estimatedTotalTime = timeElapsed / Double(currentProgress)
+                let remaining = estimatedTotalTime - timeElapsed
+                
+                // Only show if it makes sense (not infinity)
+                if remaining < 60 {
+                    self.timeRemainingString = "\(Int(remaining))s left"
+                } else {
+                    let mins = Int(remaining / 60)
+                    let secs = Int(remaining.truncatingRemainder(dividingBy: 60))
+                    self.timeRemainingString = String(format: "%d:%02d left", mins, secs)
+                }
+            }
+        }
+    }
+    
+    func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
     func calculateResults(outputURL: URL) {
-        // 1. Get original size
         let resources = PHAssetResource.assetResources(for: asset)
         var originalBytes: Int64 = 0
         for resource in resources {
@@ -312,14 +377,12 @@ struct CompressorView: View {
             }
         }
         
-        // 2. Get new size
         var compressedBytes: Int64 = 0
         if let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
            let size = attributes[.size] as? Int64 {
             compressedBytes = size
         }
         
-        // 3. Compare and Set Flags
         self.compressedSizeString = ByteCountFormatter.string(fromByteCount: compressedBytes, countStyle: .file)
         
         if compressedBytes > originalBytes {
@@ -369,6 +432,7 @@ struct CompressorView: View {
     }
     
     func handleError(_ message: String) {
+        stopTimer() // Ensure timer stops on error
         withAnimation { isCompressing = false }
         alertMessage = message
         showingAlert = true
