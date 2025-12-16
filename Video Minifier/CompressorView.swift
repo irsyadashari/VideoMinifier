@@ -97,7 +97,6 @@ struct CompressorView: View {
                 .padding(.horizontal)
                 .padding(.bottom)
             }
-            .navigationBarBackButtonHidden(isCompressing)
             
             // MARK: - Blocking Loading Overlay with Progress Bar
             if isCompressing {
@@ -241,6 +240,7 @@ struct CompressorView: View {
         }
         .navigationTitle("Preview & Compress")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isCompressing || showingSuccessModal)
         .onAppear {
             loadVideoPlayer()
             calculateOriginalSize()
