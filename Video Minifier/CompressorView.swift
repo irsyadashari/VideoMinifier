@@ -16,12 +16,12 @@ struct CompressorView: View {
     @State private var player: AVPlayer?
     @State private var selectedQuality: QualityOption = .medium
     @State private var isCompressing = false
-    @State private var progress: Float = 0.0 // 0.0 to 1.0
+    @State private var progress: Float = 0.0
     
     // ETA Calculation State
     @State private var timeRemainingString: String = "Calculating..."
     @State private var startTime: Date?
-    @State private var timer: Timer? // To poll progress
+    @State private var timer: Timer?
     
     // File Size State
     @State private var originalSizeString: String = "Calculating..."
@@ -79,6 +79,7 @@ struct CompressorView: View {
                         .pickerStyle(.segmented)
                     }
                     
+                    // Compress Button
                     Button(action: startCompression) {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
@@ -98,30 +99,26 @@ struct CompressorView: View {
                 .padding(.bottom)
             }
             
-            // MARK: - Blocking Loading Overlay with Progress Bar
+            // MARK: - Blocking Loading Overlay
             if isCompressing {
-                Color.black.opacity(0.8) // Darker background for focus
+                Color.black.opacity(0.8)
                     .edgesIgnoringSafeArea(.all)
                     .overlay(
                         VStack(spacing: 24) {
-                            
-                            // Percentage Text
                             Text("\(Int(progress * 100))%")
                                 .font(.system(size: 48, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
                             
-                            // Progress Bar
                             VStack(spacing: 8) {
                                 ProgressView(value: progress)
                                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                                    .scaleEffect(x: 1, y: 2, anchor: .center) // Make bar thicker
+                                    .scaleEffect(x: 1, y: 2, anchor: .center)
                                 
                                 HStack {
                                     Text("Compressing...")
                                         .font(.caption)
                                         .foregroundColor(.gray)
                                     Spacer()
-                                    // Estimated Time
                                     Text(timeRemainingString)
                                         .font(.caption)
                                         .foregroundColor(.white)
@@ -134,16 +131,15 @@ struct CompressorView: View {
                                 .foregroundColor(.gray.opacity(0.8))
                         }
                     )
-                    .onTapGesture { } // Block touches
+                    .onTapGesture { }
             }
             
-            // MARK: - Success Modal (Results)
+            // MARK: - Success Modal
             if showingSuccessModal {
                 Color.black.opacity(0.6)
                     .edgesIgnoringSafeArea(.all)
                     .overlay(
                         VStack(spacing: 24) {
-                            // Icon Changes based on result
                             Image(systemName: sizeIncreased ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                                 .font(.system(size: 60))
                                 .foregroundColor(sizeIncreased ? .orange : .green)
@@ -152,7 +148,6 @@ struct CompressorView: View {
                                 .font(.title2)
                                 .bold()
                             
-                            // Comparison Stats
                             HStack(spacing: 40) {
                                 VStack {
                                     Text("Before")
@@ -161,10 +156,7 @@ struct CompressorView: View {
                                     Text(originalSizeString)
                                         .font(.headline)
                                 }
-                                
-                                Image(systemName: "arrow.right")
-                                    .foregroundColor(.gray)
-                                
+                                Image(systemName: "arrow.right").foregroundColor(.gray)
                                 VStack {
                                     Text("After")
                                         .font(.caption)
@@ -175,64 +167,40 @@ struct CompressorView: View {
                                 }
                             }
                             
-                            // Savings Highlight (Dynamic Logic)
                             if sizeIncreased {
                                 VStack(spacing: 4) {
                                     Text("Size increased by \(savedSizeString)")
-                                        .font(.headline)
-                                        .foregroundColor(.red)
+                                        .font(.headline).foregroundColor(.red)
                                     Text("Original video was already highly compressed.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.center)
+                                        .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
                                 }
-                                .padding(8)
-                                .background(Color.red.opacity(0.1))
-                                .cornerRadius(8)
+                                .padding(8).background(Color.red.opacity(0.1)).cornerRadius(8)
                             } else {
                                 Text("You saved \(savedSizeString)!")
-                                    .font(.headline)
-                                    .foregroundColor(.green)
-                                    .padding(8)
-                                    .background(Color.green.opacity(0.1))
-                                    .cornerRadius(8)
+                                    .font(.headline).foregroundColor(.green)
+                                    .padding(8).background(Color.green.opacity(0.1)).cornerRadius(8)
                             }
                             
-                            // Action Buttons
                             VStack(spacing: 12) {
                                 if !sizeIncreased {
                                     Button(action: saveCompressedAndDeleteOriginal) {
                                         Text("Delete Original & Save New")
-                                            .bold()
-                                            .frame(maxWidth: .infinity)
-                                            .padding()
-                                            .background(Color.red)
-                                            .foregroundColor(.white)
-                                            .cornerRadius(10)
+                                            .bold().frame(maxWidth: .infinity).padding()
+                                            .background(Color.red).foregroundColor(.white).cornerRadius(10)
                                     }
                                 }
-                                
                                 Button(action: sizeIncreased ? { presentationMode.wrappedValue.dismiss() } : saveCompressedOnly) {
                                     Text(sizeIncreased ? "Cancel & Discard" : "Keep Original & Save New")
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(Color.primary.opacity(0.05))
-                                        .foregroundColor(.primary)
-                                        .cornerRadius(10)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                                        )
+                                        .frame(maxWidth: .infinity).padding()
+                                        .background(Color.primary.opacity(0.05)).foregroundColor(.primary).cornerRadius(10)
+                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.1), lineWidth: 1))
                                 }
                             }
                         }
                             .padding(24)
                             .background(Color(.systemBackground))
                             .cornerRadius(20)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(Color.primary.opacity(0.2), lineWidth: 1)
-                            )
+                            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.2), lineWidth: 1))
                             .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 10)
                             .padding(.horizontal, 40)
                     )
@@ -241,13 +209,26 @@ struct CompressorView: View {
         .navigationTitle("Preview & Compress")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(isCompressing || showingSuccessModal)
+        
+        // MARK: - Toolbar Implementation
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: deleteVideoWithoutCompressing) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red) // Red color for danger
+                }
+                // Disable button if busy or showing results
+                .disabled(isCompressing || showingSuccessModal)
+            }
+        }
+        
         .onAppear {
             loadVideoPlayer()
             calculateOriginalSize()
         }
         .onDisappear {
             player?.pause()
-            stopTimer() // Safety cleanup
+            stopTimer()
         }
         .alert(isPresented: $showingAlert) {
             Alert(title: Text("Status"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
@@ -255,6 +236,20 @@ struct CompressorView: View {
     }
     
     // MARK: - Logic Functions
+    
+    func deleteVideoWithoutCompressing() {
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets([self.asset] as NSArray)
+        }) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self.presentationMode.wrappedValue.dismiss()
+                } else if let error = error {
+                    self.handleError(error.localizedDescription)
+                }
+            }
+        }
+    }
     
     func calculateOriginalSize() {
         let resources = PHAssetResource.assetResources(for: asset)
@@ -289,7 +284,6 @@ struct CompressorView: View {
         guard let currentItem = player?.currentItem else { return }
         let assetToCompress = currentItem.asset
         
-        // 1. Reset UI State
         player?.pause()
         progress = 0.0
         timeRemainingString = "Calculating..."
@@ -309,13 +303,12 @@ struct CompressorView: View {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
-        // 2. Start Timer for Progress & ETA
         startTime = Date()
         startProgressTimer(for: exportSession)
         
         exportSession.exportAsynchronously {
             DispatchQueue.main.async {
-                self.stopTimer() // Stop timer when done
+                self.stopTimer()
                 
                 switch exportSession.status {
                 case .completed:
@@ -334,24 +327,16 @@ struct CompressorView: View {
         }
     }
     
-    // MARK: - Timer & ETA Logic
-    
     func startProgressTimer(for exportSession: AVAssetExportSession) {
-        // Run a timer every 0.1 seconds
         self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             let currentProgress = exportSession.progress
-            
             self.progress = currentProgress
             
-            // Calculate ETA
             if let start = self.startTime, currentProgress > 0.0 {
                 let timeElapsed = Date().timeIntervalSince(start)
-                // Formula: (TimeElapsed / Progress) = TotalTime
-                // Remaining = TotalTime - TimeElapsed
                 let estimatedTotalTime = timeElapsed / Double(currentProgress)
                 let remaining = estimatedTotalTime - timeElapsed
                 
-                // Only show if it makes sense (not infinity)
                 if remaining < 60 {
                     self.timeRemainingString = "\(Int(remaining))s left"
                 } else {
@@ -432,7 +417,7 @@ struct CompressorView: View {
     }
     
     func handleError(_ message: String) {
-        stopTimer() // Ensure timer stops on error
+        stopTimer()
         withAnimation { isCompressing = false }
         alertMessage = message
         showingAlert = true
