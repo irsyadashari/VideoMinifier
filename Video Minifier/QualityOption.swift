@@ -24,4 +24,14 @@ enum QualityOption: String, CaseIterable, Identifiable {
         case .low: return AVAssetExportPreset960x540
         }
     }
+
+    /// The box the video is scaled to fit inside, never upscaled.
+    /// Used by the reader/writer pipeline, which sets dimensions explicitly.
+    nonisolated var maximumDimensions: CGSize {
+        switch self {
+        case .high: return CGSize(width: 1920, height: 1080)
+        case .medium: return CGSize(width: 1280, height: 720)
+        case .low: return CGSize(width: 960, height: 540)
+        }
+    }
 }

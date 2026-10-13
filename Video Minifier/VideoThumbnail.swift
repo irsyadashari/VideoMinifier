@@ -13,6 +13,8 @@ import Photos
 // efficiently loads the image from the PHAsset
 struct VideoThumbnail: View {
     let asset: PHAsset
+    /// Off for compact rows where the badge would crowd the image.
+    var showsDuration: Bool = true
     @State private var image: UIImage?
     
     var body: some View {
@@ -30,18 +32,20 @@ struct VideoThumbnail: View {
                 }
                 
                 // Video Duration Overlay
-                VStack {
-                    Spacer()
-                    HStack {
+                if showsDuration {
+                    VStack {
                         Spacer()
-                        Text(formatDuration(asset.duration))
-                            .font(.caption2)
-                            .bold()
-                            .foregroundColor(.white)
-                            .padding(4)
-                            .background(Color.black.opacity(0.6))
-                            .cornerRadius(4)
-                            .padding(4)
+                        HStack {
+                            Spacer()
+                            Text(formatDuration(asset.duration))
+                                .font(.caption2)
+                                .bold()
+                                .foregroundColor(.white)
+                                .padding(4)
+                                .background(Color.black.opacity(0.6))
+                                .cornerRadius(4)
+                                .padding(4)
+                        }
                     }
                 }
             }
@@ -56,6 +60,8 @@ struct VideoThumbnail: View {
         let options = PHImageRequestOptions()
         options.isSynchronous = false
         options.deliveryMode = .opportunistic
+        // Without this, videos that only live in iCloud show an empty tile
+        options.isNetworkAccessAllowed = true
         
         // Request a slightly larger image for sharpness on Retina screens
         let targetSize = CGSize(width: size.width * 2, height: size.height * 2)

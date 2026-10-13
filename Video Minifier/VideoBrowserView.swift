@@ -18,7 +18,8 @@ struct VideoBrowserView: View {
     ]
     
     var body: some View {
-        NavigationView {
+        // Navigation container is provided by HomeView
+        Group {
             ZStack { // Changed Group to ZStack to handle overlay
                 if viewModel.hasPermission {
                     if viewModel.assets.count == 0 && !viewModel.isLoading {
