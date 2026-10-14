@@ -94,7 +94,7 @@ final class CompressionQueue: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var isPaused = false
     @Published var quality: QualityOption = .medium
-    @Published var policy: OriginalPolicy = .keep
+    @Published var policy: OriginalPolicy = .replace
     @Published var lastSummary: String?
     /// Drives the queue screen, which is presented from the root so it can be
     /// reopened from anywhere once it has been closed.

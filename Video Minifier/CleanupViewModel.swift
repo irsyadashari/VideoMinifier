@@ -63,8 +63,9 @@ class CleanupViewModel: ObservableObject {
     @Published private(set) var scannedCount = 0
     @Published private(set) var libraryCount = 0
 
-    private let pageSize = 400
-    private let qrScanLimit = 400
+    /// Small enough that one page is a few seconds, since each item needs a
+    /// 1024px image for the QR check.
+    private let pageSize = 150
     /// Bits of difference still considered the same picture.
     private let duplicateTolerance = 5
 
@@ -76,9 +77,6 @@ class CleanupViewModel: ObservableObject {
     private var allIdentifiers: [String] = []
     private var hashes: [AssetHash] = []
     private var sizeCache: [String: Int64] = [:]
-    /// Members already given their default tick, so a rebuild does not undo
-    /// what the user has since changed.
-    private var defaulted: Set<String> = []
 
     private var scanTask: Task<Void, Never>?
     private var cancelFlag = CancelFlag()
@@ -135,18 +133,39 @@ class CleanupViewModel: ObservableObject {
         selection.contains(item.id)
     }
 
+    /// Ticks or unticks for deletion. Nothing more: deciding to keep
+    /// something is a separate, deliberate action.
     func toggle(_ item: CleanupItem) {
         if selection.contains(item.id) {
             selection.remove(item.id)
-            // "I want to keep this": stay out of later scans
-            ignored.insert(item.id)
         } else {
             selection.insert(item.id)
             ignored.remove(item.id)
+            persistIgnored()
         }
+    }
+    
+    /// "I want this one, stop offering it." Takes it off the screen now and
+    /// out of later scans.
+    func keep(_ item: CleanupItem) {
+        selection.remove(item.id)
+        ignored.insert(item.id)
         persistIgnored()
+        hide(item.id)
     }
 
+    /// Takes a kept picture off the screen straight away, so the decision is
+    /// visibly honoured rather than only applying to the next scan.
+    private func hide(_ identifier: String) {
+        duplicateGroups = duplicateGroups.compactMap { group in
+            let remaining = group.items.filter { $0.id != identifier }
+            // One copy on its own is no longer a duplicate
+            guard remaining.count > 1, let first = remaining.first else { return nil }
+            return DuplicateGroup(id: first.id, items: remaining)
+        }
+        qrItems.removeAll { $0.id == identifier }
+    }
+    
     /// Brings everything the user chose to keep back into play.
     func resetIgnored() {
         ignored = []
@@ -174,7 +193,6 @@ class CleanupViewModel: ObservableObject {
         duplicateGroups = []
         qrItems = []
         selection = []
-        defaulted = []
         hashes = []
         sizeCache = [:]
         errorMessage = nil
@@ -184,16 +202,13 @@ class CleanupViewModel: ObservableObject {
         allIdentifiers = fetchAllIdentifiers()
         libraryCount = allIdentifiers.count
         isScanning = true
-        stageText = "Looking for QR codes"
+        stageText = "Checking your most recent photos"
 
         let flag = cancelFlag
         scanTask = Task { [weak self] in
             guard let model = self else { return }
 
-            await model.runQRPass(flag: flag)
-            guard !flag.isCancelled else { return }
-
-            model.stageText = "Looking for duplicates"
+            // One page covers both duplicates and QR codes now
             _ = await model.scanNextPage(flag: flag)
 
             guard !flag.isCancelled else { return }
@@ -234,25 +249,40 @@ class CleanupViewModel: ObservableObject {
     private func scanNextPage(flag: CancelFlag) async -> Int {
         let start = scannedCount
         guard start < allIdentifiers.count else { return 0 }
-
+        
         let end = min(start + pageSize, allIdentifiers.count)
         let page = Array(allIdentifiers[start..<end])
-
-        let newHashes = await Self.onBackground {
-            CleanupScanner.hashes(for: page,
-                                  isCancelled: { flag.isCancelled },
-                                  onProgress: { _ in })
+        
+        let publishProgress: @Sendable (Double) -> Void = { [weak self] fraction in
+            guard let model = self else { return }
+            Task { @MainActor in model.progress = fraction }
+        }
+        
+        let findings = await Self.onBackground {
+            CleanupScanner.scanPage(identifiers: page,
+                                    isCancelled: { flag.isCancelled },
+                                    onProgress: publishProgress)
         }
         guard !flag.isCancelled else { return 0 }
-
+        
         scannedCount = end
-        hashes.append(contentsOf: newHashes)
-
-        let before = duplicateGroups.count
+        hashes.append(contentsOf: findings.hashes)
+        
+        let before = duplicateGroups.count + qrItems.count
+        
+        // QR codes found in this page
+        let newQR = findings.qrIdentifiers.filter { identifier in
+            !ignored.contains(identifier) && !qrItems.contains { $0.id == identifier }
+        }
+        if !newQR.isEmpty {
+            let items = await makeItems(for: newQR)
+            qrItems.append(contentsOf: newQR.compactMap { items[$0] })
+        }
+        
         await rebuildDuplicateGroups(flag: flag)
-        return duplicateGroups.count - before
+        return (duplicateGroups.count + qrItems.count) - before
     }
-
+    
     private func rebuildDuplicateGroups(flag: CancelFlag) async {
         let snapshot = hashes
         let tolerance = duplicateTolerance
@@ -271,40 +301,6 @@ class CleanupViewModel: ObservableObject {
             let members = identifiers.compactMap { items[$0] }.sorted { $0.byteCount > $1.byteCount }
             guard members.count > 1, let first = members.first else { return nil }
             return DuplicateGroup(id: first.id, items: members)
-        }
-
-        applyDefaultTicks()
-    }
-
-    private func runQRPass(flag: CancelFlag) async {
-        let identifiers = allIdentifiers
-        let limit = qrScanLimit
-
-        let found = await Self.onBackground {
-            CleanupScanner.qrIdentifiers(from: identifiers,
-                                         limit: limit,
-                                         isCancelled: { flag.isCancelled },
-                                         onProgress: { _ in })
-        }
-        guard !flag.isCancelled else { return }
-
-        let kept = ignored
-        let usable = found.filter { !kept.contains($0) }
-        let items = await makeItems(for: usable)
-        qrItems = usable.compactMap { items[$0] }
-    }
-
-    /// Ticks the redundant copies of each set, leaving anything the user has
-    /// already had an opinion about alone.
-    private func applyDefaultTicks() {
-        for group in duplicateGroups {
-            for item in group.items.dropFirst() where !defaulted.contains(item.id) {
-                selection.insert(item.id)
-                defaulted.insert(item.id)
-            }
-            if let keeper = group.items.first {
-                defaulted.insert(keeper.id)
-            }
         }
     }
 

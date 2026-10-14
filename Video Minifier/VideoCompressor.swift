@@ -259,7 +259,67 @@ struct VideoCompressor {
         session.shouldOptimizeForNetworkUse = false
 
         try? FileManager.default.removeItem(at: outputURL)
+        try await runExport(session, to: outputURL)
+    }
+    
+    /// `export(to:as:)` and `states(updateInterval:)` landed in iOS 18, so on
+    /// anything older this falls back to the original callback API.
+    nonisolated static func runExport(_ session: AVAssetExportSession,
+                                      to outputURL: URL,
+                                      onProgress: (@Sendable (Double) -> Void)? = nil) async throws {
+        guard #available(iOS 18.0, *) else {
+            try await legacyExport(session, to: outputURL, onProgress: onProgress)
+            return
+        }
+        
+        let observer: Task<Void, Never>? = onProgress.map { report in
+            Task {
+                for await state in session.states(updateInterval: 0.25) {
+                    if case .exporting(let progress) = state {
+                        report(progress.fractionCompleted)
+                    }
+                }
+            }
+        }
+        defer { observer?.cancel() }
+        
         try await session.export(to: outputURL, as: .mp4)
+    }
+    
+    // Deprecated on purpose: marking the function itself deprecated is what
+    // keeps the old API's warnings from leaking into every build.
+    @available(iOS, deprecated: 18.0)
+    private nonisolated static func legacyExport(_ session: AVAssetExportSession,
+                                                 to outputURL: URL,
+                                                 onProgress: (@Sendable (Double) -> Void)?) async throws {
+        nonisolated(unsafe) let session = session
+        session.outputURL = outputURL
+        session.outputFileType = .mp4
+        
+        let observer: Task<Void, Never>? = onProgress.map { report in
+            Task {
+                while !Task.isCancelled {
+                    report(Double(session.progress))
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+        }
+        defer { observer?.cancel() }
+        
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.exportAsynchronously {
+                switch session.status {
+                case .completed:
+                    continuation.resume()
+                case .cancelled:
+                    continuation.resume(throwing: CancellationError())
+                default:
+                    continuation.resume(
+                        throwing: session.error ?? VideoCompressorError.failed("The export did not finish.")
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Pipeline

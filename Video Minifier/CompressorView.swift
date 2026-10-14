@@ -852,16 +852,9 @@ struct CompressorView: View {
         // Fast start costs another pass and buys nothing for a local file
         session.shouldOptimizeForNetworkUse = false
 
-        let progressObserver = Task {
-            for await state in session.states(updateInterval: 0.25) {
-                if case .exporting(let progress) = state {
-                    publishExportProgress(progress.fractionCompleted)
-                }
-            }
+        try await VideoCompressor.runExport(session, to: outputURL) { fraction in
+            DispatchQueue.main.async { publishExportProgress(fraction) }
         }
-        defer { progressObserver.cancel() }
-
-        try await session.export(to: outputURL, as: .mp4)
     }
     
     /// One line for the completion notification.

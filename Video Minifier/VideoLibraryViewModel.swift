@@ -70,7 +70,7 @@ class VideoLibraryViewModel: NSObject, ObservableObject, PHPhotoLibraryChangeObs
         }
     }
     
-    func photoLibraryDidChange(_ changeInstance: PHChange) {
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         if let changeDetails = changeInstance.changeDetails(for: assets) {
             DispatchQueue.main.async {
                 self.assets = changeDetails.fetchResultAfterChanges

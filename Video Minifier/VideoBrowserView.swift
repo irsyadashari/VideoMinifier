@@ -66,6 +66,7 @@ struct VideoBrowserView: View {
                         .cornerRadius(10)
                 }
             }
+            .queuePill()
             .navigationTitle("Select Video")
             .navigationBarTitleDisplayMode(.inline)
             // MARK: - Force Refresh on Appear

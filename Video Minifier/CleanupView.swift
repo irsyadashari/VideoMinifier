@@ -14,13 +14,13 @@ struct CleanupView: View {
     @State private var previewItem: CleanupItem?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            content
-
+        content
+        .safeAreaInset(edge: .bottom) {
             if viewModel.selectedCount > 0 {
                 deleteBar
             }
         }
+        .queuePill()
         .navigationTitle("Clean Up")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -120,12 +120,12 @@ struct CleanupView: View {
                 ForEach(Array(viewModel.duplicateGroups.enumerated()), id: \.element.id) { index, group in
                     Section {
                         ForEach(group.items) { item in
-                            row(for: item, note: item.id == group.items.first?.id ? "Keep" : nil)
+                            row(for: item, note: item.id == group.items.first?.id ? "Largest" : nil)
                         }
                     } header: {
                         if index == 0 {
                             sectionHeader("Looks duplicated",
-                                          detail: "\(viewModel.duplicateGroups.count) sets so far. The largest copy of each is kept. Tap to pick, hold to see one full size.")
+                                          detail: "\(viewModel.duplicateGroups.count) sets so far. Nothing is ticked for you — tap to pick, hold to see one full size, swipe for Keep.")
                         } else {
                             Text("Set \(index + 1)")
                         }
@@ -140,7 +140,7 @@ struct CleanupView: View {
                     }
                 } header: {
                     sectionHeader("Contains a QR code",
-                                  detail: "Usually one-time scans. Nothing can tell whether you still need one, so none are ticked.")
+                                  detail: "Usually one-time scans. Nothing can tell whether you still need one, so have a look before ticking.")
                 }
             }
 
@@ -151,36 +151,43 @@ struct CleanupView: View {
             if viewModel.ignoredCount > 0 {
                 Section { keptNotice }
             }
-
-            // Room for the delete bar
-            Section { Color.clear.frame(height: 56).listRowBackground(Color.clear) }
         }
         .listStyle(.insetGrouped)
     }
 
-    /// Appearing is the trigger: this sits at the bottom of the list, so it
-    /// only shows up once the user has scrolled that far.
+    /// Deliberately a button: pulling in more photos while the user is still
+    /// reviewing what is on screen is not helpful.
     private var loadMoreRow: some View {
-        HStack(spacing: 12) {
-            if viewModel.isLoadingMore {
-                ProgressView()
-            } else {
-                Image(systemName: "arrow.down.circle")
-                    .foregroundColor(.secondary)
+        Button {
+            viewModel.loadMoreIfNeeded()
+        } label: {
+            HStack(spacing: 12) {
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                } else {
+                    Image(systemName: "plus.magnifyingglass")
+                        .foregroundColor(.blue)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(viewModel.isLoadingMore ? "Checking more photos…" : "Check more photos")
+                        .font(.subheadline)
+                        .bold()
+                    Text("Checked \(viewModel.scannedCount) of \(viewModel.libraryCount) items")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    if viewModel.isLoadingMore {
+                        ProgressView(value: viewModel.progress)
+                            .frame(maxWidth: 160)
+                    }
+                }
+                Spacer()
             }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(viewModel.isLoadingMore ? "Checking more photos…" : "Keep scrolling for more")
-                    .font(.subheadline)
-                Text("Checked \(viewModel.scannedCount) of \(viewModel.libraryCount) items")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
         }
-        .onAppear { viewModel.loadMoreIfNeeded() }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLoadingMore)
     }
-
+    
     /// Unticking is remembered, so there has to be a way back.
     private var keptNotice: some View {
         Button {
@@ -191,7 +198,7 @@ struct CleanupView: View {
                 Label("\(viewModel.ignoredCount) hidden — you chose to keep them",
                       systemImage: "eye.slash")
                     .font(.subheadline)
-                Text("Unticking something keeps it out of later scans. Tap to bring them all back.")
+                Text("Swiping a row and choosing Keep takes it out of later scans. Tap to bring them all back.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -260,6 +267,14 @@ struct CleanupView: View {
                 previewItem = item
             }
         )
+        .swipeActions(edge: .trailing) {
+            Button {
+                viewModel.keep(item)
+            } label: {
+                Label("Keep", systemImage: "eye.slash")
+            }
+            .tint(.green)
+        }
     }
 
     // MARK: - Delete bar

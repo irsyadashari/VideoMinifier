@@ -93,19 +93,36 @@ struct AssetPreviewSheet: View {
                 detail("Taken", item.dateString.isEmpty ? "Unknown" : item.dateString)
             }
 
-            Button {
-                viewModel.toggle(item)
-            } label: {
-                let isMarked = viewModel.isSelected(item)
-                Label(isMarked ? "Marked for deletion — keep it" : "Mark for deletion",
-                      systemImage: isMarked ? "arrow.uturn.backward.circle" : "trash")
-                    .font(.subheadline)
-                    .bold()
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(isMarked ? Color.secondary.opacity(0.15) : Color.red)
-                    .foregroundColor(isMarked ? .primary : .white)
-                    .cornerRadius(12)
+            HStack(spacing: 10) {
+                Button {
+                    viewModel.toggle(item)
+                } label: {
+                    let isMarked = viewModel.isSelected(item)
+                    Label(isMarked ? "Untick" : "Mark for deletion",
+                          systemImage: isMarked ? "arrow.uturn.backward" : "trash")
+                        .font(.subheadline)
+                        .bold()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isMarked ? Color.secondary.opacity(0.15) : Color.red)
+                        .foregroundColor(isMarked ? .primary : .white)
+                        .cornerRadius(12)
+                }
+                
+                // Deciding to keep something is its own action now
+                Button {
+                    viewModel.keep(item)
+                    dismiss()
+                } label: {
+                    Label("Keep", systemImage: "eye.slash")
+                        .font(.subheadline)
+                        .bold()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green.opacity(0.15))
+                        .foregroundColor(.green)
+                        .cornerRadius(12)
+                }
             }
         }
         .padding()

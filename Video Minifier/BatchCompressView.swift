@@ -31,72 +31,67 @@ struct BatchCompressView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            List {
-                Section {
-                    Picker("Quality", selection: $queue.quality) {
-                        ForEach(QualityOption.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
+        List {
+            Section {
+                Picker("Quality", selection: $queue.quality) {
+                    ForEach(QualityOption.allCases) { option in
+                        Text(option.rawValue).tag(option)
                     }
-                    .pickerStyle(.segmented)
-
-                    Picker("Originals", selection: $queue.policy) {
-                        ForEach(CompressionQueue.OriginalPolicy.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text(queue.policy.explanation)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } header: {
-                    Text("Settings for the whole batch")
                 }
+                .pickerStyle(.segmented)
 
-                Section {
-                    if available.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Everything is already queued")
-                                .font(.subheadline)
-                                .bold()
-                            Text("Clear finished jobs in the queue to see them here again.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    } else {
-                        ForEach(available) { video in
-                            row(for: video)
-                        }
+                Picker("Originals", selection: $queue.policy) {
+                    ForEach(CompressionQueue.OriginalPolicy.allCases) { option in
+                        Text(option.rawValue).tag(option)
                     }
-                } header: {
-                    HStack {
-                        Text("\(available.count) video\(available.count == 1 ? "" : "s")")
-                        Spacer()
-                        if !available.isEmpty {
-                            Button(selection.count == available.count ? "Deselect all" : "Select all") {
-                                if selection.count == available.count {
-                                    selection = []
-                                } else {
-                                    selection = Set(available.map(\.id))
-                                }
-                            }
+                }
+                .pickerStyle(.segmented)
+
+                Text(queue.policy.explanation)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Settings for the whole batch")
+            }
+
+            Section {
+                if available.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Everything is already queued")
+                            .font(.subheadline)
+                            .bold()
+                        Text("Clear finished jobs in the queue to see them here again.")
                             .font(.caption)
-                            .textCase(nil)
-                        }
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(available) { video in
+                        row(for: video)
                     }
                 }
-
-                Section { Color.clear.frame(height: 56).listRowBackground(Color.clear) }
+            } header: {
+                HStack {
+                    Text("\(available.count) video\(available.count == 1 ? "" : "s")")
+                    Spacer()
+                    if !available.isEmpty {
+                        Button(selection.count == available.count ? "Deselect all" : "Select all") {
+                            if selection.count == available.count {
+                                selection = []
+                            } else {
+                                selection = Set(available.map(\.id))
+                            }
+                        }
+                        .font(.caption)
+                        .textCase(nil)
+                    }
+                }
             }
-            .listStyle(.insetGrouped)
 
-            if !selection.isEmpty {
-                startBar
-            }
-        }
+    }
+        .listStyle(.insetGrouped)
+        .safeAreaInset(edge: .bottom) { startBar }
+        .queuePill()
         .navigationTitle("Compress Several")
         .navigationBarTitleDisplayMode(.inline)
     }

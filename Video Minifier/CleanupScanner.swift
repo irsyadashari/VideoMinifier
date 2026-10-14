@@ -28,41 +28,52 @@ nonisolated struct AssetHash: Sendable {
     let aspect: Double
 }
 
+nonisolated struct PageFindings: Sendable {
+    var hashes: [AssetHash] = []
+    var qrIdentifiers: [String] = []
+}
+
 nonisolated struct CleanupScanner {
 
-    // MARK: - Duplicates
-
-    static func hashes(for identifiers: [String],
-                       isCancelled: @escaping @Sendable () -> Bool,
-                       onProgress: @escaping @Sendable (Double) -> Void) -> [AssetHash] {
+    // MARK: - One page of the library
+    
+    /// Hashes every item and looks for a QR code in the photos, from a single
+    /// image load each. Two separate passes would double the I/O, which is the
+    /// slow part.
+    static func scanPage(identifiers: [String],
+                         isCancelled: @escaping @Sendable () -> Bool,
+                         onProgress: @escaping @Sendable (Double) -> Void) -> PageFindings {
         let assets = fetchAssets(for: identifiers)
-        var results: [AssetHash] = []
-        results.reserveCapacity(identifiers.count)
-
+        var findings = PageFindings()
+        findings.hashes.reserveCapacity(identifiers.count)
+        
         for (index, identifier) in identifiers.enumerated() {
             if isCancelled() { break }
             guard let asset = assets[identifier],
-                  let image = loadImage(for: asset, maximumDimension: 72),
-                  let cgImage = image.cgImage,
-                  let hash = differenceHash(of: cgImage) else { continue }
-
-            let aspect = asset.pixelHeight > 0
-                ? Double(asset.pixelWidth) / Double(asset.pixelHeight)
-                : 1
-            results.append(AssetHash(identifier: identifier, hash: hash, aspect: aspect))
-
-            if index % 10 == 0 {
-                onProgress(Double(index) / Double(max(identifiers.count, 1)))
+                  let image = loadImage(for: asset, maximumDimension: 1_024),
+                  let cgImage = image.cgImage else { continue }
+            
+            if let hash = differenceHash(of: cgImage) {
+                let aspect = asset.pixelHeight > 0
+                    ? Double(asset.pixelWidth) / Double(asset.pixelHeight)
+                    : 1
+                findings.hashes.append(AssetHash(identifier: identifier, hash: hash, aspect: aspect))
             }
+            
+            if asset.mediaType == .image, containsQRCode(cgImage) {
+                findings.qrIdentifiers.append(identifier)
+            }
+            
+            onProgress(Double(index + 1) / Double(max(identifiers.count, 1)))
         }
-        return results
+        return findings
     }
-
+    
     /// Greedy clustering. Even a few thousand hashes is only a handful of
     /// million 64-bit comparisons, so there is no need for anything cleverer.
     static func cluster(_ hashes: [AssetHash], tolerance: Int) -> [[String]] {
         var groups: [(hash: UInt64, aspect: Double, members: [String])] = []
-
+        
         for entry in hashes {
             var matched = false
             for index in groups.indices {
@@ -78,45 +89,10 @@ nonisolated struct CleanupScanner {
                 groups.append((entry.hash, entry.aspect, [entry.identifier]))
             }
         }
-
+        
         return groups.filter { $0.members.count > 1 }.map(\.members)
     }
-
-    // MARK: - QR codes
-
-    static func qrIdentifiers(from identifiers: [String],
-                              limit: Int,
-                              isCancelled: @escaping @Sendable () -> Bool,
-                              onProgress: @escaping @Sendable (Double) -> Void) -> [String] {
-        let assets = fetchAssets(for: identifiers)
-
-        // Screenshots first: a QR code someone kept is usually a screenshot.
-        let screenshots = screenshotIdentifiers()
-        let candidates = identifiers
-            .filter { assets[$0]?.mediaType == .image }
-            .sorted { lhs, rhs in
-                screenshots.contains(lhs) && !screenshots.contains(rhs)
-            }
-            .prefix(limit)
-
-        var found: [String] = []
-        for (index, identifier) in candidates.enumerated() {
-            if isCancelled() { break }
-            guard let asset = assets[identifier],
-                  let image = loadImage(for: asset, maximumDimension: 1_024),
-                  let cgImage = image.cgImage else { continue }
-
-            if containsQRCode(cgImage) {
-                found.append(identifier)
-            }
-
-            if index % 5 == 0 {
-                onProgress(Double(index) / Double(max(candidates.count, 1)))
-            }
-        }
-        return found
-    }
-
+    
     // MARK: - Sizes
 
     /// Only ever called for the handful of assets actually on screen, which is
@@ -143,19 +119,6 @@ nonisolated struct CleanupScanner {
             byIdentifier[asset.localIdentifier] = asset
         }
         return byIdentifier
-    }
-
-    private static func screenshotIdentifiers() -> Set<String> {
-        let albums = PHAssetCollection.fetchAssetCollections(with: .smartAlbum,
-                                                             subtype: .smartAlbumScreenshots,
-                                                             options: nil)
-        guard let album = albums.firstObject else { return [] }
-
-        var identifiers: Set<String> = []
-        PHAsset.fetchAssets(in: album, options: nil).enumerateObjects { asset, _, _ in
-            identifiers.insert(asset.localIdentifier)
-        }
-        return identifiers
     }
 
     /// Local copies only: a cleanup scan must not quietly pull the library

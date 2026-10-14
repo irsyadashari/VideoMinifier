@@ -67,6 +67,7 @@ struct HomeView: View {
                 }
                 .padding()
             }
+            .queuePill()
             .navigationTitle("Video Minifier")
             .navigationBarTitleDisplayMode(.inline)
             // Pushes the compressor once a file is picked
@@ -154,7 +155,7 @@ struct HomeView: View {
                 Text("Free Up Space")
                     .font(.headline)
                 Spacer()
-                if !largeVideos.videos.isEmpty {
+                if !availableVideos.isEmpty {
                     NavigationLink(destination: BatchCompressView(largeVideos: largeVideos)) {
                         Text("Compress several")
                             .font(.subheadline)
@@ -184,12 +185,14 @@ struct HomeView: View {
                         Spacer()
                     }
                 }
-            } else if largeVideos.videos.isEmpty {
+            } else if availableVideos.isEmpty {
                 InfoCard {
                     HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("No videos over \(largeVideos.thresholdString). Nothing to clean up.")
+                        Image(systemName: largeVideos.videos.isEmpty ? "checkmark.circle.fill" : "tray.full")
+                            .foregroundColor(largeVideos.videos.isEmpty ? .green : .blue)
+                        Text(largeVideos.videos.isEmpty
+                             ? "No videos over \(largeVideos.thresholdString). Nothing to clean up."
+                             : "Every large video is in the compression queue.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -241,8 +244,14 @@ struct HomeView: View {
 
     /// Only the worst offenders belong on the home screen; the rest are in
     /// the batch picker.
+    private var availableVideos: [LargeVideo] {
+        largeVideos.videos.filter { video in
+            !queue.jobs.contains { $0.id == video.id }
+        }
+    }
+    
     private var topVideos: [LargeVideo] {
-        Array(largeVideos.videos.prefix(5))
+        Array(availableVideos.prefix(5))
     }
     
     private var shownBytesString: String {
@@ -252,7 +261,7 @@ struct HomeView: View {
     
     private var summaryText: String {
         let count = topVideos.count
-        let extra = largeVideos.videos.count - count
+        let extra = availableVideos.count - count
         let tail = extra > 0 ? " \(extra) more are in Compress several." : ""
         
         if count == 1 {
