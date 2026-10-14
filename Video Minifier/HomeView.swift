@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 
 struct HomeView: View {
     @StateObject private var largeVideos = LargeVideosViewModel()
+    @EnvironmentObject private var queue: CompressionQueue
 
     @State private var showingFileImporter = false
     @State private var pickedFileURL: URL?
@@ -19,7 +20,7 @@ struct HomeView: View {
     @State private var alertMessage = ""
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
 
@@ -49,22 +50,31 @@ struct HomeView: View {
 
                     // MARK: - Storage Suggestions
                     suggestionsSection
+
+                    // MARK: - Clean Up
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Clean Up")
+                            .font(.headline)
+
+                        NavigationLink(destination: CleanupView()) {
+                            MenuCard(title: "Review & Delete",
+                                     subtitle: "Duplicates, QR code photos and large files",
+                                     systemImage: "trash",
+                                     color: .red)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding()
             }
             .navigationTitle("Video Minifier")
             .navigationBarTitleDisplayMode(.inline)
-            .background(
-                // Hidden link that pushes the compressor once a file is picked
-                NavigationLink(isActive: $navigateToFile) {
-                    if let url = pickedFileURL {
-                        CompressorView(fileURL: url)
-                    }
-                } label: {
-                    EmptyView()
+            // Pushes the compressor once a file is picked
+            .navigationDestination(isPresented: $navigateToFile) {
+                if let url = pickedFileURL {
+                    CompressorView(fileURL: url)
                 }
-                .hidden()
-            )
+            }
             .onAppear {
                 largeVideos.refreshIfNeeded()
             }
@@ -86,16 +96,71 @@ struct HomeView: View {
                 Alert(title: Text("Status"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
             }
         }
-        .navigationViewStyle(.stack)
     }
 
+    // MARK: - Queue
+    
+    private var queueSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("In Progress")
+                .font(.headline)
+            
+            Button {
+                queue.isShowingQueue = true
+            } label: {
+                InfoCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(queue.isRunning || queue.isPaused
+                                 ? queue.statusLine
+                                 : (queue.lastSummary ?? "Queue finished"))
+                                .font(.subheadline)
+                                .bold()
+                            Spacer()
+                            if queue.isRunning || queue.isPaused {
+                                Text("\(Int(queue.overallFraction * 100))%")
+                                    .font(.subheadline)
+                                    .monospacedDigit()
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if queue.isRunning || queue.isPaused {
+                            ProgressView(value: queue.overallFraction)
+                                .tint(queue.isPaused ? .orange : .blue)
+                            if let job = queue.activeJob {
+                                Text(job.name)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
     // MARK: - Suggestions
 
     @ViewBuilder
     private var suggestionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Free Up Space")
-                .font(.headline)
+            HStack {
+                Text("Free Up Space")
+                    .font(.headline)
+                Spacer()
+                if !largeVideos.videos.isEmpty {
+                    NavigationLink(destination: BatchCompressView(largeVideos: largeVideos)) {
+                        Text("Compress several")
+                            .font(.subheadline)
+                    }
+                }
+            }
 
             if !largeVideos.hasPermission {
                 InfoCard {
@@ -137,13 +202,13 @@ struct HomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(spacing: 0) {
-                    ForEach(largeVideos.videos) { video in
+                    ForEach(topVideos) { video in
                         NavigationLink(destination: CompressorView(asset: video.asset)) {
                             LargeVideoRow(video: video)
                         }
                         .buttonStyle(.plain)
 
-                        if video.id != largeVideos.videos.last?.id {
+                        if video.id != topVideos.last?.id {
                             Divider().padding(.leading, 80)
                         }
                     }
@@ -174,12 +239,26 @@ struct HomeView: View {
         }
     }
 
+    /// Only the worst offenders belong on the home screen; the rest are in
+    /// the batch picker.
+    private var topVideos: [LargeVideo] {
+        Array(largeVideos.videos.prefix(5))
+    }
+    
+    private var shownBytesString: String {
+        let bytes = topVideos.reduce(Int64(0)) { $0 + $1.byteCount }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+    
     private var summaryText: String {
-        let count = largeVideos.videos.count
+        let count = topVideos.count
+        let extra = largeVideos.videos.count - count
+        let tail = extra > 0 ? " \(extra) more are in Compress several." : ""
+        
         if count == 1 {
-            return "Your largest video uses \(largeVideos.totalSizeString). Compress it to get space back."
+            return "Your largest video uses \(shownBytesString). Compress it to get space back." + tail
         }
-        return "Your \(count) largest videos use \(largeVideos.totalSizeString) in total. Compress one to get space back."
+        return "Your \(count) largest videos use \(shownBytesString) in total." + tail
     }
 }
 

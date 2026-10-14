@@ -11,7 +11,7 @@ import Combine
 
 extension PHAsset {
     /// Byte size and original filename, read from the asset's underlying resources.
-    var resourceInfo: (byteCount: Int64, originalFilename: String?) {
+    nonisolated var resourceInfo: (byteCount: Int64, originalFilename: String?) {
         var size: Int64 = 0
         var name: String?
         for resource in PHAssetResource.assetResources(for: self) {
@@ -25,7 +25,7 @@ extension PHAsset {
         return (size, name)
     }
 
-    var totalResourceByteCount: Int64 { resourceInfo.byteCount }
+    nonisolated var totalResourceByteCount: Int64 { resourceInfo.byteCount }
 }
 
 /// A video large enough to be worth suggesting for compression.
@@ -53,7 +53,7 @@ class LargeVideosViewModel: NSObject, ObservableObject, PHPhotoLibraryChangeObse
 
     /// Videos below this size are not worth suggesting.
     private let minimumByteCount: Int64 = 100 * 1024 * 1024 // 100 MB
-    private let maximumSuggestions = 5
+    private let maximumSuggestions = 40
 
     /// Kept so the change observer can tell when the video list changed.
     private var fetchResult: PHFetchResult<PHAsset>?
@@ -151,7 +151,7 @@ class LargeVideosViewModel: NSObject, ObservableObject, PHPhotoLibraryChangeObse
         }
     }
 
-    func photoLibraryDidChange(_ changeInstance: PHChange) {
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         // Hop to main first so fetchResult is only touched on one thread.
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let result = self.fetchResult else { return }
