@@ -9,6 +9,11 @@ A lightweight, native iOS app that shrinks the videos in your Photos library, so
 
 ## Overview
 
+
+https://github.com/user-attachments/assets/ff917243-d864-4f2a-8dba-5acc30ebb2db
+
+
+
 Large videos are the biggest consumers of space on most phones. Video Minifier lets you pick any video from your library, choose a target resolution, and re-encode it on-device using Apple's AVFoundation. You see exactly how much space you saved before deciding whether to keep the original.
 
 ## Features
