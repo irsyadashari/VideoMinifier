@@ -207,25 +207,17 @@ class CleanupViewModel: ObservableObject {
         let flag = cancelFlag
         scanTask = Task { [weak self] in
             guard let model = self else { return }
-
+            defer {
+                model.isScanning = false
+                model.hasScanned = true
+            }
+            
             // One page covers both duplicates and QR codes now
             _ = await model.scanNextPage(flag: flag)
-
-            guard !flag.isCancelled else { return }
-            model.isScanning = false
-            model.hasScanned = true
         }
     }
 
-    func cancelScan() {
-        cancelFlag.cancel()
-        scanTask?.cancel()
-        scanTask = nil
-        isScanning = false
-        isLoadingMore = false
-    }
-
-    /// Called when the bottom of the list comes into view.
+    /// Scans forward until something turns up, or the library runs out.
     func loadMoreIfNeeded() {
         guard hasPermission, !isScanning, !isLoadingMore, canLoadMore else { return }
 
@@ -234,16 +226,29 @@ class CleanupViewModel: ObservableObject {
 
         scanTask = Task { [weak self] in
             guard let model = self else { return }
-
-            // A page that turns up nothing would leave the trigger row sitting
-            // at the bottom with nothing new to show, so keep going for a few.
-            for _ in 0..<3 {
-                if flag.isCancelled || !model.canLoadMore { break }
+            // Always clears, even if this run is cancelled part-way through.
+            // Leaving it set would disable the button for good.
+            defer { model.isLoadingMore = false }
+            
+            // Keep working through the library until there is something new
+            // to show. Asking for another tap just to reach the next batch is
+            // busywork; the counter and the Stop button cover the waiting.
+            while !flag.isCancelled, model.canLoadMore {
                 let added = await model.scanNextPage(flag: flag)
                 if added > 0 { break }
             }
-            model.isLoadingMore = false
         }
+    }
+    
+    /// Interrupts the run without poisoning later ones: the old flag stays
+    /// cancelled, so the next tap needs a fresh one.
+    func stopScanning() {
+        cancelFlag.cancel()
+        scanTask?.cancel()
+        scanTask = nil
+        cancelFlag = CancelFlag()
+        isScanning = false
+        isLoadingMore = false
     }
 
     private func scanNextPage(flag: CancelFlag) async -> Int {
@@ -268,7 +273,7 @@ class CleanupViewModel: ObservableObject {
         scannedCount = end
         hashes.append(contentsOf: findings.hashes)
         
-        let before = duplicateGroups.count + qrItems.count
+        let before = displayedItemCount
         
         // QR codes found in this page
         let newQR = findings.qrIdentifiers.filter { identifier in
@@ -280,7 +285,11 @@ class CleanupViewModel: ObservableObject {
         }
         
         await rebuildDuplicateGroups(flag: flag)
-        return (duplicateGroups.count + qrItems.count) - before
+        return displayedItemCount - before
+    }
+    
+    private var displayedItemCount: Int {
+        duplicateGroups.reduce(0) { $0 + $1.items.count } + qrItems.count
     }
     
     private func rebuildDuplicateGroups(flag: CancelFlag) async {

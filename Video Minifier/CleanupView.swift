@@ -7,7 +7,6 @@
 
 import Photos
 import SwiftUI
-import UIKit
 
 struct CleanupView: View {
     @StateObject private var viewModel = CleanupViewModel()
@@ -26,7 +25,7 @@ struct CleanupView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if viewModel.isScanning {
-                    Button("Stop") { viewModel.cancelScan() }
+                    Button("Stop") { viewModel.stopScanning() }
                 } else if viewModel.hasScanned {
                     Button("Rescan") { viewModel.startScan() }
                 }
@@ -125,7 +124,7 @@ struct CleanupView: View {
                     } header: {
                         if index == 0 {
                             sectionHeader("Looks duplicated",
-                                          detail: "\(viewModel.duplicateGroups.count) sets so far. Nothing is ticked for you — tap to pick, hold to see one full size, swipe for Keep.")
+                                          detail: "\(viewModel.duplicateGroups.count) sets so far. Nothing is ticked for you — tap to pick, hold for a bigger look, swipe for Keep.")
                         } else {
                             Text("Set \(index + 1)")
                         }
@@ -155,37 +154,48 @@ struct CleanupView: View {
         .listStyle(.insetGrouped)
     }
 
-    /// Deliberately a button: pulling in more photos while the user is still
-    /// reviewing what is on screen is not helpful.
+    /// Tapping once works through the library until it finds something. The
+    /// counter shows it moving and Stop gets out, so there is no reason to
+    /// hand the user a button to keep pressing.
     private var loadMoreRow: some View {
-        Button {
-            viewModel.loadMoreIfNeeded()
-        } label: {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
+            if viewModel.isLoadingMore {
+                ProgressView()
+            } else {
+                Image(systemName: "plus.magnifyingglass")
+                    .foregroundColor(.blue)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.isLoadingMore ? "Looking through your photos…" : "Check more photos")
+                    .font(.subheadline)
+                    .bold()
+                    .foregroundColor(viewModel.isLoadingMore ? .primary : .blue)
+                Text("Checked \(viewModel.scannedCount) of \(viewModel.libraryCount) items")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
                 if viewModel.isLoadingMore {
-                    ProgressView()
-                } else {
-                    Image(systemName: "plus.magnifyingglass")
-                        .foregroundColor(.blue)
+                    ProgressView(value: viewModel.progress)
+                        .frame(maxWidth: 160)
                 }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(viewModel.isLoadingMore ? "Checking more photos…" : "Check more photos")
-                        .font(.subheadline)
-                        .bold()
-                    Text("Checked \(viewModel.scannedCount) of \(viewModel.libraryCount) items")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    if viewModel.isLoadingMore {
-                        ProgressView(value: viewModel.progress)
-                            .frame(maxWidth: 160)
-                    }
-                }
-                Spacer()
+            }
+            
+            Spacer()
+            
+            if viewModel.isLoadingMore {
+                Button("Stop") { viewModel.stopScanning() }
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                    .buttonStyle(.plain)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLoadingMore)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !viewModel.isLoadingMore {
+                viewModel.loadMoreIfNeeded()
+            }
+        }
     }
     
     /// Unticking is remembered, so there has to be a way back.
@@ -258,15 +268,26 @@ struct CleanupView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+            // One simple hit area for the whole row, rather than one per
+            // subview, so a drag anywhere on it reaches the list
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // Simultaneous, so holding to preview does not swallow the tap
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        .contextMenu {
+            Button {
                 previewItem = item
+            } label: {
+                Label("Open preview", systemImage: "arrow.up.left.and.arrow.down.right")
             }
-        )
+            Button {
+                viewModel.keep(item)
+            } label: {
+                Label("Keep — hide from scans", systemImage: "eye.slash")
+            }
+        } preview: {
+            VideoThumbnail(asset: item.asset, showsDuration: item.isVideo)
+                .frame(width: 280, height: 280)
+        }
         .swipeActions(edge: .trailing) {
             Button {
                 viewModel.keep(item)
